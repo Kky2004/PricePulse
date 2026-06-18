@@ -1,0 +1,6 @@
+{
+  "name": "PricePulse",
+  "description": "A calm, highly-polished smart shopping assistant that compares search prices, tracks history, shows trends and insights, and provides marketplace comparisons.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
