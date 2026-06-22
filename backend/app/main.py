@@ -26,7 +26,8 @@ origins = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:3000",
-    "http://127.0.0.1:3000", # Allow all origins for development
+    "http://127.0.0.1:3000",
+    https://pricepulse-1-i3et.onrender.com
 ]
 
 app.add_middleware(
