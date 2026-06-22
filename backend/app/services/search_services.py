@@ -1,36 +1,55 @@
+from typing import List, Dict, Any
+
 from sqlalchemy.orm import Session
-from app.models.product import Product
-from app.models.product_price import ProductPrice
 
-def search_product(db: Session, product_name: str):
-    # Find the product matching the name case-insensitively
-    product = (
+from app.models.model import Product, ProductListing
+
+
+def search_product(db: Session, product_name: str, limit: int = 10) -> List[Dict[str, Any]]:
+    
+    products = (
         db.query(Product)
-        .filter(Product.title.ilike(f"%{product_name}%"))
-        .first()
-    )
-    if not product:
-        # Fallback to search slug if not found by title
-        product = (
-            db.query(Product)
-            .filter(Product.slug.ilike(f"%{product_name}%"))
-            .first()
+        .filter(
+            (Product.title.ilike(f"%{product_name}%")) |
+            (Product.slug.ilike(f"%{product_name}%"))
         )
-
-    if not product:
-        return []
-
-    # Get the recorded prices
-    prices = (
-        db.query(ProductPrice)
-        .filter(ProductPrice.product_id == product.id)
+        .limit(limit)
         .all()
     )
 
-    return [
-        {
-            "platform": p.platform,
-            "price": p.price
-        }
-        for p in prices
-    ]
+    if not products:
+        return []
+
+    results = []
+    for product in products:
+        listings = (
+            db.query(ProductListing)
+            .filter(ProductListing.product_id == product.id)
+            .order_by(ProductListing.recorded_at.desc())
+            .all()
+        )
+
+        
+        latest_by_platform: Dict[str, Dict[str, Any]] = {}
+        for listing in listings:
+            if listing.platform not in latest_by_platform:
+                latest_by_platform[listing.platform] = {
+                    "platform": listing.platform,
+                    "price": listing.price,
+                    "stock_status": listing.stock_status,
+                    "seller_name": listing.seller_name,
+                    "product_url": listing.product_url,
+                    "recorded_at": listing.recorded_at,
+                }
+
+        results.append({
+            "product_id": product.id,
+            "title": product.title,
+            "slug": product.slug,
+            "brand": product.brand,
+            "category": product.category,
+            "image_url": product.image_url,
+            "prices": list(latest_by_platform.values()),
+        })
+
+    return results

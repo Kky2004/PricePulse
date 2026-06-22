@@ -13,7 +13,7 @@ router = APIRouter(
     prefix="/auth",
     tags=["Authentication"]
 )
-print("✅ AUTH ROUTER LOADED")
+print("[AUTH] AUTH ROUTER LOADED")
 
 
 @router.get("/")

@@ -3,8 +3,7 @@ from sqlalchemy.orm import Session
 import re
 
 from app.database import get_db
-from app.models.product import Product
-from app.models.product_price import ProductPrice
+from app.models.model import Product,ProductListing
 from app.schemas.product_schema import (
     ProductCreate,
     ProductResponse
@@ -16,11 +15,7 @@ router = APIRouter(
 )
 
 
-def slugify(text: str) -> str:
-    text = text.lower().strip()
-    text = re.sub(r'[^\w\s-]', '', text)
-    text = re.sub(r'[\s_-]+', '-', text)
-    return text
+
 
 
 @router.get("/")
@@ -28,6 +23,41 @@ def get_products(
     db: Session = Depends(get_db)
 ):
     return db.query(Product).all()
+
+# FAST DASHBOARD ENDPOINT
+@router.get("/with-best-prices")
+def get_products_with_best_prices(
+    db: Session = Depends(get_db)
+):
+    products = db.query(Product).all()
+
+    response = []
+
+    for product in products:
+
+        cheapest = (
+            db.query(ProductListing)
+            .filter(ProductListing.product_id == product.id)
+            .order_by(ProductListing.price.asc())
+            .first()
+        )
+
+        response.append({
+            "id": product.id,
+            "title": product.title,
+            "brand": product.brand,
+            "category": product.category,
+            "image_url": product.image_url,
+
+            "bestPrice": {
+                "price": cheapest.price if cheapest else 0,
+                "platform": cheapest.platform if cheapest else "",
+                "seller_name": cheapest.seller_name if cheapest else "",
+                "product_url": cheapest.product_url if cheapest else "",
+            }
+        })
+
+    return response
 
 
 @router.post(
@@ -52,7 +82,8 @@ def create_product(
         category=product.category,
         image_url=product.image_url,
         brand=product.brand,
-        slug=product_slug
+        slug=product_slug,
+        description=product.description,
     )
 
     db.add(new_product)
@@ -77,7 +108,6 @@ def get_product(
     else:
         product = (
             db.query(Product)
-            .filter(Product.slug == product_id)
             .first()
         )
 

@@ -1,63 +1,151 @@
-import React, { useState, useMemo } from 'react';
-import { Product } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import { Product, ProductListing, BestPrice } from '../types';
+import { getCompareData, createCustomTrack } from '../services/compareService';
+import { getDashboardStats, DashboardDeal } from '../services/dashboardService';
 
 interface CompareViewProps {
-  products: Product[];
-  onSelectProduct: (productId: string) => void;
-  onAddComparison: (newProductData: any) => void;
+  onSelectProduct: (productId: number) => void;
 }
 
-export default function CompareView({ products, onSelectProduct, onAddComparison }: CompareViewProps) {
+export default function CompareView({ onSelectProduct }: CompareViewProps) {
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.src =
+      'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=150&q=80';
+  };
+
+  const [products, setProducts] = useState<Product[]>([]);
+  const [listings, setListings] = useState<ProductListing[]>([]);
+  const [bestPrices, setBestPrices] = useState<BestPrice[]>([]);
+  const [topDeal, setTopDeal] = useState<DashboardDeal | undefined>(undefined);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
   const [query, setQuery] = useState('');
   const [showAddModal, setShowAddModal] = useState(false);
   const [newProductName, setNewProductName] = useState('');
   const [newProductPrice, setNewProductPrice] = useState('');
   const [newProductCategory, setNewProductCategory] = useState('Electronics');
   const [newProductStore, setNewProductStore] = useState('Amazon');
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+
+  async function loadData() {
+    setLoading(true);
+    setError(null);
+    try {
+      const { products, listings, bestPrices } = await getCompareData();
+      setProducts(products);
+      setListings(listings);
+      setBestPrices(bestPrices);
+
+      try {
+        const stats = await getDashboardStats();
+        setTopDeal(stats.topDeal);
+      } catch {
+        setTopDeal(undefined);
+      }
+    } catch (err) {
+      setError('Could not load comparison data. Is the backend running?');
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Helper: get best price entry for a product
+  const getBestPrice = (productId: number): BestPrice | undefined =>
+    bestPrices?.find((b) => b.product_id === productId);
+  // Helper: get all listings for a product
+  const getListings = (productId: number): ProductListing[] =>
+    (listings ?? []).filter((l) => l.product_id === productId);
 
   // Filter products based on search query
   const filteredProducts = useMemo(() => {
     if (!query) return products;
-    return products.filter(p =>
-      p.name.toLowerCase().includes(query.toLowerCase()) ||
-      p.brand.toLowerCase().includes(query.toLowerCase()) ||
-      p.category.toLowerCase().includes(query.toLowerCase())
+    const q = query.toLowerCase();
+    return products.filter(
+      (p) =>
+        p.title.toLowerCase().includes(q) ||
+        p.brand.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q)
     );
   }, [products, query]);
 
-  // Featured Large Product: Apple iPhone 15 Pro or whatever is in stock
-  const featuredCompareItem = products.find(p => p.id === 'iphone-15-pro') || products[0];
+  // Featured product: prefer the dashboard's actual top deal (biggest
+  // cross-platform savings) over an arbitrary "first product with a price".
+  const featuredProduct = useMemo(() => {
+    if (topDeal) {
+      const match = products.find((p) => p.id === topDeal.product_id);
+      if (match) return match;
+    }
+    return products.find((p) => getBestPrice(p.id)) ?? products[0];
+  }, [products, bestPrices, topDeal]);
 
-  const handleCreateCustomTrack = (e: React.FormEvent) => {
+  const featuredBest = featuredProduct ? getBestPrice(featuredProduct.id) : undefined;
+  const featuredListings = featuredProduct ? getListings(featuredProduct.id).slice(0, 2) : [];
+
+  // "Trending Deals" grid -- first 4 tracked products for now.
+  // Swap this for products.filter ranked by savings_percent once
+  // GET /dashboard/best-deals is wired in here too.
+  const trendingProducts = products.slice(0, 4);
+
+  const handleCreateCustomTrack = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProductName || !newProductPrice) return;
-    
-    // Trigger callback to parent to add
-    onAddComparison({
-      name: newProductName,
-      currentPrice: parseFloat(newProductPrice) || 299,
-      category: newProductCategory,
-      store: newProductStore
-    });
 
-    // Reset
-    setNewProductName('');
-    setNewProductPrice('');
-    setShowAddModal(false);
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      await createCustomTrack({
+        name: newProductName,
+        currentPrice: parseFloat(newProductPrice) || 0,
+        category: newProductCategory,
+        store: newProductStore,
+      });
+      setNewProductName('');
+      setNewProductPrice('');
+      setShowAddModal(false);
+      await loadData(); // refresh so the new product shows up immediately
+    } catch (err) {
+      setSubmitError('Could not save this product. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="py-20 text-center text-on-surface-variant text-sm">
+        Loading comparison data…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="py-20 text-center text-red-500 text-sm">
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6 pb-16">
-      
-      {/* Search Bar section */}
+
+      {/* Search Bar */}
       <section className="space-y-4 pt-2">
         <div className="text-center space-y-1 py-2">
-          <h2 className="text-2xl font-black text-on-surface">Compare Prices Instantly</h2>
-          <p className="text-xs text-on-surface-variant">Find the best deal from multiple marketplaces in seconds</p>
+          <h2 className="text-5xl font-black tracking-tight bg-gradient-to-r from-violet-400 via-purple-500 to-green-400 bg-clip-text text-transparent">Compare Prices Instantly</h2>
+          <p className="text-xl text-white font-semibold ">
+            Find the best deal from multiple marketplaces in seconds
+          </p>
         </div>
 
         <div className="relative flex items-center">
-          <div className="absolute left-4 text-outline select-none">
+          {/* <div className="absolute left-4 text-outline select-none">
             <span className="material-symbols-outlined">search</span>
           </div>
           <input
@@ -70,15 +158,15 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
           <div className="absolute right-2 flex items-center gap-1.5">
             <button
               onClick={() => {
-                const popularList = ['Sony WH-1000XM5', 'iPhone 15 Pro', 'iPad Pro'];
-                const randomKeyword = popularList[Math.floor(Math.random() * popularList.length)];
-                setQuery(randomKeyword);
+                if (products.length === 0) return;
+                const random = products[Math.floor(Math.random() * products.length)];
+                setQuery(random.title);
               }}
               className="p-1 px-2.5 text-[11px] font-sans font-extrabold text-primary bg-primary/10 rounded-lg hover:bg-primary/20"
             >
               Surprise Me
             </button>
-          </div>
+          </div> */}
         </div>
 
         {query && (
@@ -86,72 +174,96 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
             {filteredProducts.length === 0 ? (
               <div className="p-3 text-center text-on-surface-variant">No matching products found</div>
             ) : (
-              filteredProducts.map(p => (
-                <div
-                  key={p.id}
-                  onClick={() => onSelectProduct(p.id)}
-                  className="p-3 hover:bg-custom-bg transition-colors cursor-pointer flex justify-between items-center"
-                >
-                  <span className="font-bold text-on-surface">{p.name}</span>
-                  <span className="text-primary font-black">${p.currentPrice.toFixed(2)}</span>
-                </div>
-              ))
+              filteredProducts.map((p) => {
+                const best = getBestPrice(p.id);
+                return (
+                  <div
+                    key={p.id}
+                    onClick={() => onSelectProduct(p.id)}
+                    className="p-3 hover:bg-custom-bg transition-colors cursor-pointer flex justify-between items-center"
+                  >
+                    <span className="font-bold text-on-surface">{p.title}</span>
+                    {best && (
+                      <span className="text-primary font-black">
+                        ₹{best.price.toFixed(2)}
+                      </span>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         )}
       </section>
 
-      {/* Main Large product card comparison */}
-      {featuredCompareItem && (
+      {/* Featured Product Card */}
+      {featuredProduct && (
         <section
-          onClick={() => onSelectProduct(featuredCompareItem.id)}
+          onClick={() => onSelectProduct(featuredProduct.id)}
           className="bg-white rounded-xl p-5 shadow-sm border border-outline-variant/10 cursor-pointer hover:shadow-md transition-all group"
         >
           <div className="flex justify-between items-start mb-2">
             <span className="px-2.5 py-1 bg-primary-container text-on-primary-container rounded-full text-[10px] font-bold uppercase tracking-wider">
               Best Deal Tracked
             </span>
-            <span className="material-symbols-outlined text-outline hover:text-red-500 transition-colors">favorite</span>
+            <span className="material-symbols-outlined text-outline hover:text-red-500 transition-colors">
+              favorite
+            </span>
           </div>
 
           <div className="flex gap-4 items-center">
             <div className="w-24 h-24 bg-custom-bg rounded-lg p-1.5 flex items-center justify-center border border-outline-variant/5">
               <img
-                alt={featuredCompareItem.name}
+                alt={featuredProduct.title}
                 className="max-w-full max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform duration-300"
-                src={featuredCompareItem.image}
+                src={featuredProduct.image_url ?? ''}
+                onError={handleImageError}
               />
             </div>
             <div className="flex-1 min-w-0">
               <span className="text-[10px] font-extrabold text-secondary uppercase tracking-widest leading-none">
-                {featuredCompareItem.category}
+                {featuredProduct.category}
               </span>
               <h3 className="text-sm font-black text-on-surface truncate mt-1">
-                {featuredCompareItem.name}
+                {featuredProduct.title}
               </h3>
-              <div className="flex items-center gap-1 mt-1 text-xs">
-                <span className="material-symbols-outlined text-amber-500 text-[14px]">star</span>
-                <span className="font-extrabold">{featuredCompareItem.rating}</span>
-                <span className="text-on-surface-variant text-[11px]">({featuredCompareItem.reviewsCount} reviews)</span>
-              </div>
+              {featuredListings[0] && (
+                <div className="flex items-center gap-1 mt-1 text-xs">
+                  <span className="material-symbols-outlined text-amber-500 text-[14px]">star</span>
+                  <span className="font-extrabold">
+                    {featuredListings[0].rating ?? '—'}
+                  </span>
+                  <span className="text-on-surface-variant text-[11px]">
+                    ({featuredListings[0].reviews_count ?? 0} reviews)
+                  </span>
+                </div>
+              )}
+              {topDeal && topDeal.product_id === featuredProduct.id && (
+                <p className="text-[10px] font-bold text-green-600 mt-1">
+                  Save {topDeal.savings_percent.toFixed(0)}% vs {topDeal.highest_platform}
+                </p>
+              )}
             </div>
           </div>
 
+          {/* Per-platform listing rows */}
           <div className="mt-4 space-y-2">
-            {featuredCompareItem.stores.slice(0, 2).map((st, i) => (
+            {featuredListings.map((listing, i) => (
               <div
                 key={i}
                 className="flex items-center justify-between p-2.5 bg-custom-bg rounded-lg border border-outline-variant/15"
               >
                 <div className="flex items-center gap-2">
                   <span className="w-6 h-6 rounded-full bg-primary/10 flex items-center justify-center font-bold text-primary text-[10px]">
-                    {st.name[0]}
+                    {listing.platform[0]}
                   </span>
-                  <span className="text-xs font-bold text-on-surface">{st.name}</span>
+                  <span className="text-xs font-bold text-on-surface">{listing.platform}</span>
                 </div>
                 <div className="text-right">
-                  <span className="text-sm font-black text-primary">${st.price.toFixed(2)}</span>
-                  {st.isLowest && (
+                  <span className="text-sm font-black text-primary">
+                    ₹{listing.price.toFixed(2)}
+                  </span>
+                  {featuredBest?.platform === listing.platform && (
                     <p className="text-[9px] font-bold text-secondary">Lowest mapped</p>
                   )}
                 </div>
@@ -161,23 +273,42 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
         </section>
       )}
 
-      {/* Market Insight block */}
+      {/* Market Insight -- now driven by the actual top deal from the backend */}
       <section className="bg-primary text-white p-5 rounded-xl flex flex-col justify-between relative overflow-hidden">
         <div className="relative z-10 space-y-2">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-on-primary-container">trending_down</span>
-            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-[#a3efdb]">Market Insight</h4>
+            <h4 className="text-[10px] font-extrabold uppercase tracking-widest text-[#a3efdb]">
+              Market Insight
+            </h4>
           </div>
-          <p className="text-base font-bold leading-tight">Prices for tech gear are down 12% this week.</p>
-          <p className="text-xs opacity-80 leading-normal">Our Calm Intelligence algorithm suggests now is the best time to buy laptops and peripherals.</p>
-          <button 
-            onClick={() => onSelectProduct('macbook-air-m3')}
-            className="mt-2 bg-[#1f6f5f] hover:bg-white hover:text-primary transition-all text-white font-bold text-xs py-2 px-4 rounded-lg"
-          >
-            Explore MacBook Deal
-          </button>
+          {topDeal ? (
+            <>
+              <p className="text-base font-bold leading-tight">
+                {topDeal.title} is {topDeal.savings_percent.toFixed(0)}% cheaper on{' '}
+                {topDeal.lowest_platform} than {topDeal.highest_platform}.
+              </p>
+              <p className="text-xs opacity-80 leading-normal">
+                ₹{topDeal.lowest_price.toLocaleString('en-IN')} vs ₹
+                {topDeal.highest_price.toLocaleString('en-IN')} — the biggest cross-platform gap
+                we're tracking right now.
+              </p>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onSelectProduct(topDeal.product_id);
+                }}
+                className="mt-2 bg-[#1f6f5f] hover:bg-white hover:text-primary transition-all text-white font-bold text-xs py-2 px-4 rounded-lg"
+              >
+                View This Deal
+              </button>
+            </>
+          ) : (
+            <p className="text-base font-bold leading-tight">
+              Tracking {products.length} products across multiple marketplaces.
+            </p>
+          )}
         </div>
-        {/* Abstract SVG line graph backing */}
         <div className="absolute right-0 bottom-0 top-0 w-1/3 opacity-20 pointer-events-none flex items-end">
           <svg className="w-full h-1/2 text-white" viewBox="0 0 100 100" preserveAspectRatio="none">
             <path d="M0,80 Q30,40 60,60 T100,20 L100,100 L0,100 Z" fill="currentColor" />
@@ -185,57 +316,56 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
         </div>
       </section>
 
-      {/* Grid listing items */}
+      {/* Trending Grid */}
       <section className="space-y-4">
         <h3 className="text-sm font-bold text-on-surface px-1">Other Trending Deals</h3>
-        
         <div className="grid grid-cols-2 gap-3">
-          {products.filter(p => ['macbook-air-m3', 'playstation-5-slim', 'nike-air-max', 'smart-watch-v3'].includes(p.id)).slice(0, 2).map((item) => (
-            <div
-              key={item.id}
-              onClick={() => onSelectProduct(item.id)}
-              className="bg-white p-3 rounded-xl shadow-sm border border-outline-variant/10 cursor-pointer hover:border-primary transition-all flex flex-col justify-between group"
-            >
-              <div className="relative aspect-video rounded-lg overflow-hidden bg-custom-bg p-1 flex items-center justify-center border border-outline-variant/5">
-                <img
-                  className="max-h-full max-w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform"
-                  src={item.image}
-                  alt={item.name}
-                />
-                <span className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-full bg-secondary-container/40 text-[9px] font-bold text-on-secondary-container">
-                  -{item.trendPercentage}% Off
-                </span>
-              </div>
-              
-              <div className="mt-2 space-y-1">
-                <h4 className="text-xs font-bold text-on-surface truncate">{item.name}</h4>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-black text-primary">${item.currentPrice.toFixed(0)}</span>
-                  <div className="w-6 h-6 rounded-full bg-primary/10 hover:bg-primary hover:text-white flex items-center justify-center transition-all text-primary">
-                    <span className="material-symbols-outlined text-[16px] font-black">add</span>
+          {trendingProducts.map((item) => {
+            const best = getBestPrice(item.id);
+            return (
+              <div
+                key={item.id}
+                onClick={() => onSelectProduct(item.id)}
+                className="bg-white p-3 rounded-xl shadow-sm border border-outline-variant/10 cursor-pointer hover:border-primary transition-all flex flex-col justify-between group"
+              >
+                <div className="relative aspect-video rounded-lg overflow-hidden bg-custom-bg p-1 flex items-center justify-center border border-outline-variant/5">
+                  <img
+                    className="max-h-full max-w-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform"
+                    src={item.image_url ?? ''}
+                    alt={item.title}
+                    onError={handleImageError}
+                  />
+                </div>
+                <div className="mt-2 space-y-1">
+                  <h4 className="text-xs font-bold text-on-surface truncate">{item.title}</h4>
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-black text-primary">
+                      {best ? `₹${best.price.toFixed(0)}` : '—'}
+                    </span>
+                    <div className="w-6 h-6 rounded-full bg-primary/10 hover:bg-primary hover:text-white flex items-center justify-center transition-all text-primary">
+                      <span className="material-symbols-outlined text-[16px] font-black">add</span>
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
 
-      {/* Trust logs section */}
+      {/* Trust Logos */}
       <section className="py-6 border-t border-outline-variant/15 text-center space-y-3">
         <p className="text-[10px] font-bold text-on-surface-variant uppercase tracking-widest">
-          Comparing over 500+ Marketplaces worldwide
+          Comparing prices across tracked marketplaces
         </p>
         <div className="flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs font-black opacity-45 select-none tracking-wider text-outline font-sans">
           <span>AMAZON</span>
-          <span>BEST BUY</span>
-          <span>WALMART</span>
-          <span>EBAY</span>
-          <span>TARGET</span>
+          <span>FLIPKART</span>
+          <span>MEESHO</span>
         </div>
       </section>
 
-      {/* Trigger floating action button */}
+      {/* FAB */}
       <div className="fixed bottom-20 right-4 z-40">
         <button
           onClick={() => setShowAddModal(true)}
@@ -246,7 +376,7 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
         </button>
       </div>
 
-      {/* Interactive Modal to add new item to tracker */}
+      {/* Add Modal */}
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
           <div className="bg-white rounded-xl p-6 w-full max-w-sm space-y-4 shadow-xl border border-outline-variant/10">
@@ -262,7 +392,9 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
 
             <form onSubmit={handleCreateCustomTrack} className="space-y-3">
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-on-surface-variant uppercase space-y-1">Product Name</label>
+                <label className="text-[11px] font-bold text-on-surface-variant uppercase">
+                  Product Name
+                </label>
                 <input
                   type="text"
                   required
@@ -274,12 +406,14 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
               </div>
 
               <div className="space-y-1">
-                <label className="text-[11px] font-bold text-on-surface-variant uppercase">Target / Current Price ($)</label>
+                <label className="text-[11px] font-bold text-on-surface-variant uppercase">
+                  Target / Current Price (₹)
+                </label>
                 <input
                   type="number"
                   required
                   className="w-full bg-custom-bg border border-outline-variant/40 rounded-lg p-2.5 text-xs outline-none focus:border-primary"
-                  placeholder="e.g. 299"
+                  placeholder="e.g. 29999"
                   value={newProductPrice}
                   onChange={(e) => setNewProductPrice(e.target.value)}
                 />
@@ -287,7 +421,9 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-on-surface-variant uppercase">Category</label>
+                  <label className="text-[11px] font-bold text-on-surface-variant uppercase">
+                    Category
+                  </label>
                   <select
                     className="w-full bg-custom-bg border border-outline-variant/40 rounded-lg p-2.5 text-xs outline-none text-on-surface"
                     value={newProductCategory}
@@ -300,24 +436,31 @@ export default function CompareView({ products, onSelectProduct, onAddComparison
                 </div>
 
                 <div className="space-y-1">
-                  <label className="text-[11px] font-bold text-on-surface-variant uppercase">Store Source</label>
+                  <label className="text-[11px] font-bold text-on-surface-variant uppercase">
+                    Store Source
+                  </label>
                   <select
                     className="w-full bg-custom-bg border border-outline-variant/40 rounded-lg p-2.5 text-xs outline-none text-on-surface"
                     value={newProductStore}
                     onChange={(e) => setNewProductStore(e.target.value)}
                   >
                     <option value="Amazon">Amazon</option>
-                    <option value="Best Buy">Best Buy</option>
-                    <option value="Walmart">Walmart</option>
+                    <option value="Flipkart">Flipkart</option>
+                    <option value="Meesho">Meesho</option>
                   </select>
                 </div>
               </div>
 
+              {submitError && (
+                <p className="text-xs text-red-500 font-semibold">{submitError}</p>
+              )}
+
               <button
                 type="submit"
-                className="w-full bg-primary text-white py-2.5 rounded-lg text-xs font-bold hover:bg-primary-hover transition-colors mt-2"
+                disabled={submitting}
+                className="w-full bg-primary text-white py-2.5 rounded-lg text-xs font-bold hover:bg-primary-hover transition-colors mt-2 disabled:opacity-50"
               >
-                Track Product Instantly
+                {submitting ? 'Saving…' : 'Track Product Instantly'}
               </button>
             </form>
           </div>

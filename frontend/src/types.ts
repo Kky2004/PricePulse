@@ -17,9 +17,23 @@ export interface StoreOffer {
   isLowest?: boolean;
 }
 
+
+
 export interface PriceHistoryPoint {
   date: string;
   price: number;
+}
+
+export interface PricePoint {
+  price: number;
+  recorded_at: string;
+}
+
+export interface PriceTrend {
+  product_id: number;
+  title: string;
+  platform: string;
+  points: PricePoint[];
 }
 
 export interface RecentEvent {
@@ -29,35 +43,68 @@ export interface RecentEvent {
   subtitle: string;
 }
 
+// export interface Product {
+//   id: string;
+//   name: string;
+//   brand: string;
+//   category: string;
+//   rating: number;
+//   reviewsCount: string;
+//   currentPrice: number;
+//   lowestPrice: number;
+//   highestPrice: number;
+//   averagePrice: number;
+//   description: string;
+//   specifications: Specification[];
+//   image: string;
+//   trendDirection: 'up' | 'down' | 'stable';
+//   trendPercentage: number;
+//   bestDealStore: string;
+//   bestDealSavingsPercent: number;
+//   bestDealSavingsAmount: number;
+//   stores: StoreOffer[];
+//   priceHistory7d: PriceHistoryPoint[];
+//   priceHistory30d: PriceHistoryPoint[];
+//   priceHistory1y: PriceHistoryPoint[];
+//   recentEvents: RecentEvent[];
+// }
+
 export interface Product {
-  id: string;
-  name: string;
+  id: number;
+  title: string;
   brand: string;
   category: string;
-  rating: number;
-  reviewsCount: string;
-  currentPrice: number;
-  lowestPrice: number;
-  highestPrice: number;
-  averagePrice: number;
-  description: string;
-  specifications: Specification[];
-  image: string;
-  trendDirection: 'up' | 'down' | 'stable';
-  trendPercentage: number;
-  bestDealStore: string;
-  bestDealSavingsPercent: number;
-  bestDealSavingsAmount: number;
-  stores: StoreOffer[];
-  priceHistory7d: PriceHistoryPoint[];
-  priceHistory30d: PriceHistoryPoint[];
-  priceHistory1y: PriceHistoryPoint[];
-  recentEvents: RecentEvent[];
+  description?: string;
+  image_url?: string;
+  created_at: string;
+}
+
+export interface ProductListing {
+  id: number;
+  product_id: number;
+  platform: string;          // "Amazon" | "Flipkart" | "Meesho"
+  price: number;
+  rating?: number;
+  reviews_count?: number;
+  stock_status?: string;     // "In Stock" | "Out of Stock"
+  product_url?: string;
+  seller_name?: string;
+  recorded_at: string;
+}
+
+export interface BestPrice {
+  product_id: number;
+  title: string;
+  platform: string;
+  price: number;
+  product_url?: string;
+  seller_name?: string;
+  stock_status?: string;
 }
 
 export interface SearchTrackItem {
   id: string;
-  productId: string;
+  productId: number;
   productName: string;
   brand: string;
   price: number;
@@ -96,6 +143,12 @@ export interface DashboardResponse {
   }[];
 
 }
+export interface SearchHistoryItem {
+  id: number;
+  product_name: string;
+  searched_at: string;
+}
+ 
 
 
 export interface LoginResponse {
@@ -108,4 +161,8 @@ export interface SignupResponse {
   message?: string;
   full_name?: string;
   email?: string;
+}
+
+export interface ProductWithBestPrice extends Product {
+  bestPrice: BestPrice;
 }

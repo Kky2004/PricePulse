@@ -1,19 +1,68 @@
-import React, { useState } from 'react';
-import { Product } from '../types';
+import React, { useState, useEffect } from 'react';
+import { ProductWithBestPrice, PriceTrend } from '../types';
 import CompactChart from './CompactChart';
+import { getProductsWithBestPrices, getDashboardStats, DashboardStats } from '../services/dashboardService';
+import { getPriceTrend, getLowestPriceTrendSeries } from '../services/priceService';
+import { getProductImage, handleImageError } from '../utils/imgutils'
 
 interface DashboardViewProps {
-  products: Product[];
-  onSelectProduct: (productId: string) => void;
+  onSelectProduct: (productId: number) => void;
   onSearch: (keyword: string) => void;
 }
 
-export default function DashboardView({ products, onSelectProduct, onSearch }: DashboardViewProps) {
+export default function DashboardView({ onSelectProduct, onSearch }: DashboardViewProps) {
+  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
+    e.currentTarget.src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=150&q=80';
+   
+    
+  };
   const [searchInput, setSearchInput] = useState('');
+  const [products, setProducts] = useState<ProductWithBestPrice[]>([]);
+  const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [trendSeries, setTrendSeries] = useState<{ date: string; price: number }[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Find a specific product for the featured deal of the day (e.g. Sony WH-1000XM5)
-  const featuredProduct = products.find(p => p.id === 'sony-wh-1000xm5') || products[0];
+  useEffect(() => {
+    let cancelled = false;
 
+    async function load() {
+      setLoading(true);
+      setError(null);
+      try {
+        const productList = await getProductsWithBestPrices();
+        if (cancelled) return;
+        setProducts(productList);
+
+        // Stats -- fails gracefully if /dashboard/stats isn't built yet
+        try {
+          const dashStats = await getDashboardStats();
+          if (!cancelled) setStats(dashStats);
+        } catch {
+          if (!cancelled) setStats(null);
+        }
+
+        // Trend chart for the featured product
+        const featured = productList[0];
+        if (featured) {
+          const trends: PriceTrend[] = await getPriceTrend(featured.id);
+          if (!cancelled) setTrendSeries(getLowestPriceTrendSeries(trends));
+        }
+      } catch (err) {
+        if (!cancelled) setError('Could not load dashboard data. Is the backend running?');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  console.log("products =", products);
+  console.log("isArray =", Array.isArray(products));
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchInput.trim()) {
@@ -21,21 +70,41 @@ export default function DashboardView({ products, onSelectProduct, onSearch }: D
     }
   };
 
-  const trendData = [
-    { date: 'Jan', price: 110 },
-    { date: 'Feb', price: 95 },
-    { date: 'Mar', price: 105 },
-    { date: 'Apr', price: 80 }
-  ];
+  // Deal of the day: cheapest current best-price among loaded products.
+  const productArray = Array.isArray(products)
+  ? products
+  : [products];
+  const featuredProduct = productArray.reduce<ProductWithBestPrice | null>((best, p) => {
+    if (!best) return p;
+    return p.bestPrice.price < best.bestPrice.price ? p : best;
+  }, null) ?? products[0];
+
+  const recentProducts = productArray.slice(0, 2);
+
+  if (loading) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-20 text-center text-gray-400">
+        Loading dashboard…
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="max-w-7xl mx-auto px-6 py-20 text-center text-red-400">
+        {error}
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-7xl mx-auto px-6 space-y-6 pb-12">
       {/* Search Header */}
-     <section className="text-center py-10 space-y-6 max-w-4xl mx-auto">
+      <section className="text-center py-10 space-y-6 max-w-4xl mx-auto">
         <h2 className="text-5xl md:text-6xl font-black tracking-tight bg-gradient-to-r from-violet-400 via-purple-500 to-green-400 bg-clip-text text-transparent">
           Find the Best Price Instantly
         </h2>
-        
+
         <form onSubmit={handleSearchSubmit} className="relative group">
           <div className="absolute inset-y-0 left-4 flex items-center pointer-events-none text-outline">
             <span className="material-symbols-outlined text-violet-400 select-none">search</span>
@@ -56,16 +125,16 @@ export default function DashboardView({ products, onSelectProduct, onSearch }: D
         </form>
 
         <div className="flex flex-wrap justify-center gap-2 pt-1 text-xs">
-          {['iPhone 15', 'Sony WH-1000XM5', 'iPad Pro'].map((keyword) => (
+          {productArray.slice(0, 3).map((p) => (
             <button
-              key={keyword}
+              key={p.id}
               onClick={() => {
-                setSearchInput(keyword);
-                onSearch(keyword);
+                setSearchInput(p.title);
+                onSearch(p.title);
               }}
               className="px-5 py-2 rounded-full bg-[#161B22] border border-violet-500/20 text-gray-300 hover:bg-violet-600 hover:text-white transition-all duration-300"
             >
-              {keyword}
+              {p.title}
             </button>
           ))}
         </div>
@@ -80,41 +149,36 @@ export default function DashboardView({ products, onSelectProduct, onSearch }: D
                 Deal of the Day
               </span>
               <h3 className="text-3xl font-black text-white">
-                {featuredProduct.name}
+                {featuredProduct.title}
               </h3>
               <p className="text-sm text-gray-400">
-                Professional Noise Cancelling Headphones
+                {featuredProduct.brand} • {featuredProduct.category}
               </p>
-            </div>
-            <div className="px-4 py-2 bg-green-500/10 border border-green-500/20 text-green-400 rounded-xl flex items-center gap-2">
-              <span className="material-symbols-outlined text-[16px] font-bold">arrow_downward</span>
-              <span className="font-extrabold text-xs">-$80</span>
             </div>
           </div>
 
           <div className="space-y-3">
             <div className="space-y-1">
               <div className="text-4xl md:text-5xl font-black text-green-400 leading-none">
-                ${featuredProduct.currentPrice.toFixed(2)}
+                ₹{featuredProduct.bestPrice.price.toLocaleString('en-IN')}
               </div>
               <div className="flex items-center gap-2 mt-2">
-                <img
-                  alt="Amazon Logo"
-                  className="w-4 h-4 rounded-full"
-                  src="https://lh3.googleusercontent.com/aida-public/AB6AXuDqVEPBI0zbwlKcUqEwFTuEwAFsPooNCvnBctZZphOiDvd-jQYc8eVjIjxvC3JX_vCYfcZdCetKy7FtH47nFIIQav2op6a8k-6YunIBTewHLSAgHOmh-js6_6RRcMo2YmwhHiypWJz9CA006NM4esOClXm3pe6YLKd5lVMOmYfLiLgVAMESxyhXhGKq2aL5w68OrKt9x-q9wppajmja4LkVA7lQfha4Qrn8KeklIoMDSPBbbuwiAmUjYvOXXX_hCczZ201lCcSbjKmH"
-                />
                 <span className="text-sm text-violet-300 font-semibold tracking-wide">
-  Amazon.com
-</span>
+                  {featuredProduct.bestPrice.platform}
+                  {featuredProduct.bestPrice.seller_name ? ` • ${featuredProduct.bestPrice.seller_name}` : ''}
+                </span>
               </div>
             </div>
-            <div className="w-24 h-24 relative overflow-hidden rounded-lg bg-custom-bg p-1 flex items-center justify-center border border-outline-variant/10">
-              <img
-                alt={featuredProduct.name}
-                className="max-w-full max-h-full object-contain mix-blend-multiply"
-                src={featuredProduct.image}
-              />
-            </div>
+            {featuredProduct.image_url && (
+              <div className="w-24 h-24 relative overflow-hidden rounded-lg bg-custom-bg p-1 flex items-center justify-center border border-outline-variant/10">
+                <img
+                  alt={featuredProduct.title}
+                  className="max-w-full max-h-full object-contain mix-blend-multiply"
+                  src={featuredProduct.image_url}
+                  onError={handleImageError}
+                />
+              </div>
+            )}
           </div>
 
           <button
@@ -130,78 +194,78 @@ export default function DashboardView({ products, onSelectProduct, onSearch }: D
       <section className="grid grid-cols-2 gap-3">
         <div className="bg-white p-4 rounded-xl shadow-sm space-y-1 border border-outline-variant/10">
           <span className="material-symbols-outlined text-primary text-[22px]">search_insights</span>
-          <div className="text-lg font-black text-on-surface">1.2k</div>
+          <div className="text-lg font-black text-on-surface">{stats?.totalSearches ?? '—'}</div>
           <div className="text-[11px] font-semibold text-on-surface-variant">Total Searches</div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm space-y-1 border border-outline-variant/10">
           <span className="material-symbols-outlined text-tertiary text-[22px]">local_fire_department</span>
-          <div className="text-lg font-black text-on-surface">45</div>
+          <div className="text-lg font-black text-on-surface">{stats?.bestDealsCount ?? '—'}</div>
           <div className="text-[11px] font-semibold text-on-surface-variant">Best Deals</div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm space-y-1 border border-outline-variant/10">
           <span className="material-symbols-outlined text-secondary text-[22px]">savings</span>
-          <div className="text-lg font-black text-on-surface">18%</div>
+          <div className="text-lg font-black text-on-surface">
+            {stats?.avgSavingsPercent != null ? `${stats.avgSavingsPercent.toFixed(0)}%` : '—'}
+          </div>
           <div className="text-[11px] font-semibold text-on-surface-variant">Avg Savings</div>
         </div>
         <div className="bg-white p-4 rounded-xl shadow-sm space-y-1 border border-outline-variant/10">
           <span className="material-symbols-outlined text-primary text-[22px]">inventory_2</span>
-          <div className="text-lg font-black text-on-surface">85</div>
-          <div className="text-[11px] font-semibold text-on-surface-variant">Products Tracked</div>
+          <div className="text-lg font-black text-on-surface">{stats?.productsTracked ?? products.length}</div>
+          <div className="text-[11px] font-semibold text-white">Products Tracked</div>
         </div>
       </section>
 
       {/* Trend Preview */}
-      <section className="bg-white rounded-xl p-5 shadow-sm border border-outline-variant/10">
-        <div className="flex justify-between items-center mb-3">
-          <h3 className="text-sm font-bold text-on-surface">Electronics Trend</h3>
-          <span className="text-xs font-semibold text-tertiary flex items-center gap-1 bg-tertiary/10 px-2 py-0.5 rounded-full">
-            Trending Down <span className="material-symbols-outlined text-[14px]">trending_down</span>
-          </span>
-        </div>
-        <div className="pt-2">
-          <CompactChart data={trendData} strokeColor="#4f46e5" fillColorStart="#4f46e5" height={100} showTooltip={false} />
-        </div>
-        <div className="flex justify-between mt-2 text-[10px] text-outline font-semibold">
-          <span>Jan</span>
-          <span>Feb</span>
-          <span>Mar</span>
-          <span>Apr</span>
-        </div>
-      </section>
+      {trendSeries.length > 0 && (
+        <section className="bg-white rounded-xl p-5 shadow-sm border border-outline-variant/10">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="text-sm font-bold text-on-surface">
+              {featuredProduct?.title} — Lowest Price Trend
+            </h3>
+          </div>
+          <div className="pt-2">
+            <CompactChart data={trendSeries} strokeColor="#4f46e5" fillColorStart="#4f46e5" height={100} showTooltip={false} />
+          </div>
+        </section>
+      )}
 
       {/* Recents Section */}
       <section className="space-y-3">
         <div className="flex justify-between items-center">
-          <h3 className="text-base font-bold text-on-surface">Recent Comparisons</h3>
-          <button 
-            onClick={() => onSearch('')} 
+          <h3 className="text-base font-bold text-white">Tracked Products</h3>
+          <button
+            onClick={() => onSearch('')}
             className="text-primary text-xs font-semibold hover:underline"
           >
             View all
           </button>
         </div>
-        
+
         <div className="space-y-3">
-          {products.filter(p => ['playstation-5-slim', 'iphone-15-pro', 'ipad-pro-12-9'].includes(p.id)).slice(0, 2).map((prod) => (
+          {recentProducts.map((prod) => (
             <div
               key={prod.id}
               onClick={() => onSelectProduct(prod.id)}
               className="bg-white p-3 rounded-xl flex items-center gap-3 shadow-sm border border-outline-variant/10 hover:border-outline transition-all cursor-pointer group active:scale-[0.99]"
             >
               <div className="w-14 h-14 bg-custom-bg flex-shrink-0 rounded-lg overflow-hidden flex items-center justify-center p-1 border border-outline-variant/5">
-                <img
-                  alt={prod.name}
-                  className="max-w-full max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform"
-                  src={prod.image}
-                />
+                {prod.image_url && (
+                  <img
+                    alt={prod.title}
+                    className="max-w-full max-h-full object-contain mix-blend-multiply group-hover:scale-105 transition-transform"
+                    src={prod.image_url}
+                    onError={handleImageError}
+                  />
+                )}
               </div>
               <div className="flex-grow">
                 <h4 className="text-sm font-bold text-on-surface truncate group-hover:text-primary transition-colors">
-                  {prod.name}
+                  {prod.title}
                 </h4>
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span className="text-xs text-on-surface-variant">
-                    {prod.brand} • <span className="font-extrabold text-primary">${prod.currentPrice.toFixed(0)}</span>
+                    {prod.brand} • <span className="font-extrabold text-primary">₹{prod.bestPrice.price.toLocaleString('en-IN')}</span>
                   </span>
                 </div>
               </div>
@@ -215,3 +279,4 @@ export default function DashboardView({ products, onSelectProduct, onSearch }: D
     </div>
   );
 }
+

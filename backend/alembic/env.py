@@ -11,9 +11,8 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from app.database import Base, DATABASE_URL
-from app.models.product import Product
-from app.models.product_price import ProductPrice
-from app.models.search_history import SearchHistory
+from app.models.model import Product, ProductListing, PriceHistory, SearchHistory
+from app.models.user import User
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
