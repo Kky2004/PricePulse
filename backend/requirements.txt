@@ -8,3 +8,4 @@ beautifulsoup4
 pydantic
 alembic
 email-validator
+python-jose[cryptography]
