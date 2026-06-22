@@ -18,9 +18,6 @@ export default function DashboardView({ onSelectProduct, onSearch }: DashboardVi
   e.currentTarget.src =
     "https://www.galaxus.at/Files/7/5/5/9/2/6/7/2/Swift-X-14-SFX14-72G-05_high.png";
 };
-   
-    
-  };
   const [searchInput, setSearchInput] = useState('');
   const [products, setProducts] = useState<ProductWithBestPrice[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
