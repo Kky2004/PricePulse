@@ -24,7 +24,7 @@ import api from "../api/api";
 import { PriceTrend } from '../types';
 import { cachedFetchJson } from './Apicache';
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE_URL  ;
 
 async function fetchJson<T>(path: string): Promise<T> {
   return cachedFetchJson<T>(`${API_BASE}${path}`);
