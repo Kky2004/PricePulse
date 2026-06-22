@@ -11,8 +11,13 @@ interface DashboardViewProps {
 }
 
 export default function DashboardView({ onSelectProduct, onSearch }: DashboardViewProps) {
-  const handleImageError = (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
-    e.currentTarget.src = 'https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=150&q=80';
+  const handleImageError = (
+  e: React.SyntheticEvent<HTMLImageElement, Event>
+) => {
+  e.currentTarget.onerror = null;
+  e.currentTarget.src =
+    "https://images.unsplash.com/photo-1531403009284-440f080d1e12?w=150&q=80";
+};
    
     
   };
